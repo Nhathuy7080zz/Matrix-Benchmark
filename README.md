@@ -31,7 +31,3 @@ gcc -O3 GPU.c -o GPU.exe -I.\OpenCL-Headers -DCL_TARGET_OPENCL_VERSION=120 C:\Wi
 - Nguồn: https://github.com/KhronosGroup/OpenCL-Headers
 - Repo sử dụng: `OpenCL-Headers/`
 - License: Apache License 2.0 (xem `OpenCL-Headers/LICENSE`)
-
-## Ghi chú
-- Đảm bảo file nguồn `gpu_bench.c` tồn tại trong thư mục dự án trước khi biên dịch.
-- Nếu tên file nguồn hiện tại khác, hãy thay `gpu_bench.c` bằng tên file thực tế.
