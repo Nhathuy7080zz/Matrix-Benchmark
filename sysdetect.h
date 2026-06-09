@@ -204,6 +204,25 @@ static void get_gpu_info(char *gpu1, char *gpu2, size_t bufsz) {
     if (gpu1[0] == '\0') strncpy(gpu1, "N/A", bufsz - 1);
 }
 
+static void get_l3_cache(unsigned long long *l3_kb) {
+    *l3_kb = 0;
+    DWORD sz = 0;
+    GetLogicalProcessorInformation(NULL, &sz);
+    SYSTEM_LOGICAL_PROCESSOR_INFORMATION *buf = malloc(sz);
+    if (buf) {
+        if (GetLogicalProcessorInformation(buf, &sz)) {
+            int n = (int)(sz / sizeof(*buf));
+            for (int i = 0; i < n; i++) {
+                if (buf[i].Relationship == RelationCache &&
+                    buf[i].Cache.Level == 3) {
+                    *l3_kb += buf[i].Cache.Size / 1024ULL;
+                }
+            }
+        }
+        free(buf);
+    }
+}
+
 // -- LINUX HARDWARE DETECTION --
 #else
 
@@ -327,18 +346,50 @@ static void get_gpu_info(char *gpu1, char *gpu2, size_t bufsz) {
     if (gpu1[0] == '\0') strcpy(gpu1, "N/A (install: pciutils)");
 }
 
+static void get_l3_cache(unsigned long long *l3_kb) {
+    *l3_kb = 0;
+    for (int i = 0; i < 8; i++) {
+        char path[128];
+        snprintf(path, sizeof(path),
+            "/sys/devices/system/cpu/cpu0/cache/index%d/level", i);
+        FILE *f = fopen(path, "r");
+        if (!f) break;
+        int level = 0;
+        fscanf(f, "%d", &level);
+        fclose(f);
+        if (level == 3) {
+            snprintf(path, sizeof(path),
+                "/sys/devices/system/cpu/cpu0/cache/index%d/size", i);
+            f = fopen(path, "r");
+            if (f) {
+                char buf[32] = {0};
+                fscanf(f, "%31s", buf);
+                fclose(f);
+                unsigned long long val = strtoull(buf, NULL, 10);
+                size_t l = strlen(buf);
+                char unit = l ? buf[l - 1] : 0;
+                if      (unit == 'K' || unit == 'k') *l3_kb = val;
+                else if (unit == 'M' || unit == 'm') *l3_kb = val * 1024ULL;
+                else                                 *l3_kb = val / 1024ULL;
+            }
+            break;
+        }
+    }
+}
+
 #endif /* _WIN32 */
 
 static int print_sysinfo(void) {
     char cpu_model[256], gpu1[256], gpu2[256], os_name[256];
     int cores, threads;
     double base_mhz;
-    unsigned long long ram_total;
+    unsigned long long ram_total, l3_kb;
 
     get_os_info(os_name, sizeof(os_name));
     get_cpu_info(cpu_model, &cores, &threads, &base_mhz);
     get_ram_info(&ram_total);
     get_gpu_info(gpu1, gpu2, sizeof(gpu1));
+    get_l3_cache(&l3_kb);
 
     printf("=========================================\n");
     printf("           THONG TIN HE THONG\n");
@@ -346,6 +397,8 @@ static int print_sysinfo(void) {
     printf("OS     : %s\n", os_name);
     printf("CPU    : %s\n", cpu_model);
     printf("         Cores: %d  |  Threads: %d  |  Base: %.0f MHz\n", cores, threads, base_mhz);
+    if (l3_kb > 0)
+        printf("         L3 Cache: %llu MB\n", l3_kb / 1024ULL);
     printf("RAM    : %llu MB\n", ram_total);
     printf("GPU 1  : %s\n", gpu1);
     if (gpu2[0]) printf("GPU 2  : %s\n", gpu2);
