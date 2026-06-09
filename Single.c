@@ -41,7 +41,7 @@ void multiply_matrix_ikj(const double *A, const double *B, double *C, int N) {
 }
 
 int main() {
-    int N = 1000;
+    int N = 10000;
 
     print_sysinfo();
 
