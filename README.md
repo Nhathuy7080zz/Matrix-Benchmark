@@ -11,6 +11,9 @@
 - OpenCL headers: `OpenCL-Headers/`
 - OpenCL loader/runtime: `C:\Windows\System32\OpenCL.dll`
 
+## Autorun
+Chỉ cần chạy Autorun.bat
+
 ## Build
 CPU Single:
 ```bash
