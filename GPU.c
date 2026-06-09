@@ -13,7 +13,6 @@
 #include "sysdetect.h"
 
 // OpenCL Kernel: Nhân ma trận với Tiling (Sử dụng Local Memory tương đương Cache Blocking)
-// Lưu ý: Bật cl_khr_fp64 để hỗ trợ tính toán số thực dấu phẩy động 64-bit (double) giống hệt CPU
 const char *kernel_source =
 "#define TS 16\n"
 "__kernel void matmul(__global const float *A, __global const float *B, __global float *C, int N) {\n"
