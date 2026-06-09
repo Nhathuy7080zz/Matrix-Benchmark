@@ -140,7 +140,7 @@ int main() {
     printf(" - Tong so phep tinh    : %.2f ty (N^3 = %.2e)\n",  total_ops / 1e12, total_ops);
     printf(" - Hieu nang            : %.2f GFLOPS\n", gflops);
     printf("=========================================\n");
-
+    log_to_csv("Multi", NULL, gflops);  // Cho Multi.c
     free(A);
     free(B);
     free(C);

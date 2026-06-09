@@ -407,4 +407,34 @@ static int print_sysinfo(void) {
     return threads;
 }
 
+static void log_to_csv(const char* mode, const char* device_name, double gflops) {
+    char cpu[256]; int cores, threads; double base; unsigned long long l3;
+    get_cpu_info(cpu, &cores, &threads, &base);
+    get_l3_cache(&l3);
+
+    // Neu khong truyen ten thiet bi (NULL), tu dong lay ten CPU hien tai
+    char *final_dev = (char*)device_name;
+    if (!final_dev) {
+        final_dev = cpu;
+        while (*final_dev == ' ') final_dev++;
+    }
+
+    FILE *f = fopen("results.csv", "a");
+    if (f) {
+        fseek(f, 0, SEEK_END);
+        if (ftell(f) == 0) {
+            fprintf(f, "Mode,Device,Cores,Threads,L3 Cache,GFLOPS\n");
+        }
+        
+        // Kiem tra neu la GPU thi bo qua Cores, Threads, L3
+        if (strcmp(mode, "GPU") == 0) {
+            fprintf(f, "%s,\"%s\",N/A,N/A,N/A,\"%.2f GFLOPS\"\n",
+                    mode, final_dev, gflops);
+        } else {
+            fprintf(f, "%s,\"%s\",%d,%d,\"%llu MB\",\"%.2f GFLOPS\"\n",
+                    mode, final_dev, cores, threads, l3 / 1024ULL, gflops);
+        }
+        fclose(f);
+    }
+}
 #endif // SYSDETECT_H
