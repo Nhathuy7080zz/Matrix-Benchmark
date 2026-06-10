@@ -16,15 +16,18 @@
 #endif
 
 // -- CROSS-PLATFORM TIMER --
+// Windows: cache QueryPerformanceFrequency (giá trị không đổi sau boot, không cần gọi lại)
+// Linux:   CLOCK_MONOTONIC_RAW tránh bị NTP slew điều chỉnh (~500 ppm = ~30ms/phút)
 static double get_time(void) {
 #ifdef _WIN32
-    LARGE_INTEGER freq, count;
-    QueryPerformanceFrequency(&freq);
+    static LARGE_INTEGER freq = {0};
+    if (freq.QuadPart == 0) QueryPerformanceFrequency(&freq);
+    LARGE_INTEGER count;
     QueryPerformanceCounter(&count);
     return (double)count.QuadPart / (double)freq.QuadPart;
 #else
     struct timespec t;
-    clock_gettime(CLOCK_MONOTONIC, &t);
+    clock_gettime(CLOCK_MONOTONIC_RAW, &t);
     return t.tv_sec + t.tv_nsec / 1e9;
 #endif
 }
@@ -407,12 +410,11 @@ static int print_sysinfo(void) {
     return threads;
 }
 
-static void log_to_csv(const char* mode, const char* device_name, double gflops) {
+static void log_to_csv(const char* mode, const char* device_name, double time_s, double gflops) {
     char cpu[256]; int cores, threads; double base; unsigned long long l3;
     get_cpu_info(cpu, &cores, &threads, &base);
     get_l3_cache(&l3);
 
-    // Neu khong truyen ten thiet bi (NULL), tu dong lay ten CPU hien tai
     char *final_dev = (char*)device_name;
     if (!final_dev) {
         final_dev = cpu;
@@ -423,16 +425,15 @@ static void log_to_csv(const char* mode, const char* device_name, double gflops)
     if (f) {
         fseek(f, 0, SEEK_END);
         if (ftell(f) == 0) {
-            fprintf(f, "Mode,Device,Cores,Threads,L3 Cache,GFLOPS\n");
+            fprintf(f, "Mode,Device,Cores,Threads,L3 Cache,Time (s),GFLOPS\n");
         }
         
-        // Kiem tra neu la GPU thi bo qua Cores, Threads, L3
         if (strcmp(mode, "GPU") == 0) {
-            fprintf(f, "%s,\"%s\",N/A,N/A,N/A,\"%.2f GFLOPS\"\n",
-                    mode, final_dev, gflops);
+            fprintf(f, "%s,\"%s\",N/A,N/A,N/A,%.4f,\"%.2f GFLOPS\"\n",
+                    mode, final_dev, time_s, gflops);
         } else {
-            fprintf(f, "%s,\"%s\",%d,%d,\"%llu MB\",\"%.2f GFLOPS\"\n",
-                    mode, final_dev, cores, threads, l3 / 1024ULL, gflops);
+            fprintf(f, "%s,\"%s\",%d,%d,\"%llu MB\",%.4f,\"%.2f GFLOPS\"\n",
+                    mode, final_dev, cores, threads, l3 / 1024ULL, time_s, gflops);
         }
         fclose(f);
     }

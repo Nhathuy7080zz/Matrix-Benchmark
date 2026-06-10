@@ -21,19 +21,24 @@ void zero_matrix(double *matrix, int N) {
             matrix[i * N + j] = 0.0;
 }
 
-// Nhân ma trận ikj với Cache Blocking (tiling) để tối ưu spatial locality
+// Nhân ma trận ikj với 3D Cache Blocking (tiling i-k-j) để tối ưu Spatial Locality tối đa
+// Thứ tự tile: i_blk -> k_blk -> j_blk (đúng kiến trúc Row-major C)
+// Working set mỗi tile: A[BLOCK x BLOCK] + B[BLOCK x BLOCK] + C[BLOCK x BLOCK] ~ 3 x 128KB → nằm gọn trong L2
 void multiply_matrix_ikj(const double *A, const double *B, double *C, int N) {
     int BLOCK = 128;
-    for (int k_blk = 0; k_blk < N; k_blk += BLOCK) {
-        int k_end = (k_blk + BLOCK > N) ? N : k_blk + BLOCK;
-        for (int j_blk = 0; j_blk < N; j_blk += BLOCK) {
-            int j_end = (j_blk + BLOCK > N) ? N : j_blk + BLOCK;
-            for (int i = 0; i < N; i++) {
-                for (int k = k_blk; k < k_end; k++) {
-                    double a_ik = A[i * N + k];
-                    #pragma GCC ivdep
-                    for (int j = j_blk; j < j_end; j++)
-                        C[i * N + j] += a_ik * B[k * N + j];
+    for (int i_blk = 0; i_blk < N; i_blk += BLOCK) {
+        int i_end = (i_blk + BLOCK > N) ? N : i_blk + BLOCK;
+        for (int k_blk = 0; k_blk < N; k_blk += BLOCK) {
+            int k_end = (k_blk + BLOCK > N) ? N : k_blk + BLOCK;
+            for (int j_blk = 0; j_blk < N; j_blk += BLOCK) {
+                int j_end = (j_blk + BLOCK > N) ? N : j_blk + BLOCK;
+                for (int i = i_blk; i < i_end; i++) {
+                    for (int k = k_blk; k < k_end; k++) {
+                        double a_ik = A[i * N + k];
+                        #pragma GCC ivdep
+                        for (int j = j_blk; j < j_end; j++)
+                            C[i * N + j] += a_ik * B[k * N + j];
+                    }
                 }
             }
         }
@@ -72,6 +77,9 @@ int main() {
     zero_matrix(C, N);
 
     printf("Xong\n");
+    printf(">> Warmup...\n");
+    multiply_matrix_ikj(A, B, C, N);
+    zero_matrix(C, N);
     printf(">> Dang tinh toan...\n\n");
 
     double start_time = get_time();
@@ -79,7 +87,7 @@ int main() {
     double end_time = get_time();
 
     double time_spent = end_time - start_time;
-    double total_ops  = (double)N * N * N;
+    double total_ops = 2.0 * (double)N * N * N;
     double gflops     = (total_ops / time_spent) / 1e9;
 
     printf("                -KET QUA-\n");
@@ -90,7 +98,8 @@ int main() {
     printf(" - Tong so phep tinh    : %.2f ty (N^3 = %.2e)\n",  total_ops / 1e12, total_ops);
     printf(" - Hieu nang            : %.2f GFLOPS\n", gflops);
     printf("=========================================\n");
-    log_to_csv("Single", NULL, gflops); // Cho Single.c
+    // Thay đổi từ: log_to_csv("Single", NULL, gflops);
+    log_to_csv("Single", NULL, time_spent, gflops);
     free(A);
     free(B);
     free(C);

@@ -31,30 +31,36 @@ void zero_matrix(double *matrix, int N) {
             matrix[i * N + j] = 0.0;
 }
 
-// Hàm luồng: Dynamic Load Balancing + Cache Blocking (tiling 128x128)
+// Hàm luồng: Dynamic Load Balancing + 3D Cache Blocking (tiling i-k-j)
+// Trong mỗi chunk [rs, re): i_blk sub-tile -> k_blk -> j_blk
+// Working set mỗi sub-tile: A[BLOCK x BLOCK] + B[BLOCK x BLOCK] + C[BLOCK x BLOCK] ~ 3 x 128KB → nằm gọn trong L2
 void* multiply_matrix_ikj_thread(void *arg) {
     ThreadArgs *args = (ThreadArgs *)arg;
     double *A = args->A, *B = args->B, *C = args->C;
     int N = args->N, chunk = args->chunk_size;
     volatile int *counter = args->shared_row_counter;
 
+    int BLOCK = 128;
     while (1) {
         // Lấy khối hàng tiếp theo bằng atomic, không cần mutex
         int rs = __atomic_fetch_add(counter, chunk, __ATOMIC_RELAXED);
         if (rs >= N) break;
         int re = (rs + chunk > N) ? N : rs + chunk;
 
-        int BLOCK = 128;
-        for (int k_blk = 0; k_blk < N; k_blk += BLOCK) {
-            int k_end = (k_blk + BLOCK > N) ? N : k_blk + BLOCK;
-            for (int j_blk = 0; j_blk < N; j_blk += BLOCK) {
-                int j_end = (j_blk + BLOCK > N) ? N : j_blk + BLOCK;
-                for (int i = rs; i < re; i++) {
-                    for (int k = k_blk; k < k_end; k++) {
-                        double a_ik = A[i * N + k];
-                        #pragma GCC ivdep
-                        for (int j = j_blk; j < j_end; j++)
-                            C[i * N + j] += a_ik * B[k * N + j];
+        // 3D tiling i-k-j trong phạm vi [rs, re)
+        for (int i_blk = rs; i_blk < re; i_blk += BLOCK) {
+            int i_end = (i_blk + BLOCK > re) ? re : i_blk + BLOCK;
+            for (int k_blk = 0; k_blk < N; k_blk += BLOCK) {
+                int k_end = (k_blk + BLOCK > N) ? N : k_blk + BLOCK;
+                for (int j_blk = 0; j_blk < N; j_blk += BLOCK) {
+                    int j_end = (j_blk + BLOCK > N) ? N : j_blk + BLOCK;
+                    for (int i = i_blk; i < i_end; i++) {
+                        for (int k = k_blk; k < k_end; k++) {
+                            double a_ik = A[i * N + k];
+                            #pragma GCC ivdep
+                            for (int j = j_blk; j < j_end; j++)
+                                C[i * N + j] += a_ik * B[k * N + j];
+                        }
                     }
                 }
             }
@@ -104,7 +110,6 @@ int main() {
     zero_matrix(C, N);
 
     printf("Xong\n");
-    printf(">> Dang tinh toan...\n\n");
 
     pthread_t   threads[NUM_THREADS];
     ThreadArgs  thread_args[NUM_THREADS];
@@ -113,6 +118,21 @@ int main() {
     // chunk_size: mỗi luồng lấy ~4-8 lần để cân bằng tải, tránh overhead atomic quá nhiều
     int chunk_size = N / (NUM_THREADS * 4);
     if (chunk_size < 1) chunk_size = 1;
+
+    // --- Warmup run (không tính thời gian) ---
+    printf(">> Warmup...\n");
+    for (int t = 0; t < NUM_THREADS; t++) {
+        thread_args[t] = (ThreadArgs){ A, B, C, N, chunk_size, &shared_row_counter };
+        if (pthread_create(&threads[t], NULL, multiply_matrix_ikj_thread, &thread_args[t]) != 0) {
+            printf("[LOI] Khong the tao luong thu %d\n", t);
+            return 1;
+        }
+    }
+    for (int t = 0; t < NUM_THREADS; t++)
+        pthread_join(threads[t], NULL);
+    zero_matrix(C, N);
+    shared_row_counter = 0;
+    printf(">> Dang tinh toan...\n\n");
 
     double start_time = get_time();
 
@@ -129,7 +149,7 @@ int main() {
 
     double end_time   = get_time();
     double time_spent = end_time - start_time;
-    double total_ops  = (double)N * N * N;
+    double total_ops = 2.0 * (double)N * N * N;
     double gflops     = (total_ops / time_spent) / 1e9;
 
     printf("                -KET QUA-\n");
@@ -140,7 +160,8 @@ int main() {
     printf(" - Tong so phep tinh    : %.2f ty (N^3 = %.2e)\n",  total_ops / 1e12, total_ops);
     printf(" - Hieu nang            : %.2f GFLOPS\n", gflops);
     printf("=========================================\n");
-    log_to_csv("Multi", NULL, gflops);  // Cho Multi.c
+    // Thay đổi từ: log_to_csv("Multi", NULL, gflops);
+    log_to_csv("Multi", NULL, time_spent, gflops);
     free(A);
     free(B);
     free(C);
